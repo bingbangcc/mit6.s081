@@ -110,10 +110,12 @@ sys_fstat(void)
   struct file *f;
   uint64 st; // user pointer to struct stat
 
+  // 读取了f和st
   if(argfd(0, 0, &f) < 0 || argaddr(1, &st) < 0)
     return -1;
   return filestat(f, st);
 }
+
 
 // Create the path new as a link to the same inode as old.
 uint64

@@ -56,6 +56,7 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
+  // 头插法
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
@@ -79,4 +80,19 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+uint64 
+freenum(void) {
+  uint64 num = 0;
+  struct run *r;
+  acquire(&kmem.lock);
+  r = kmem.freelist;
+  while (r) {
+    num++;
+    r = r->next;
+  }
+  release(&kmem.lock);
+  // 问的是字节数，num是page的数量，乘以PGSIZE即是字节数
+  return num * PGSIZE;
 }
