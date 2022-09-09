@@ -14,6 +14,7 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+// 每个page拿出来一点空间构造run，作为其构造page空闲链表的结构
 struct run {
   struct run *next;
 };
