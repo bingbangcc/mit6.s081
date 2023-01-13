@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "vm.c"
 
 struct cpu cpus[NCPU];
 
@@ -121,6 +122,26 @@ found:
     return 0;
   }
 
+  // 每个进程都初始化一个内核页表
+  p->kernelpgtb = proc_kpt_init();
+  if (p->kernelpgtb == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // 在该进程的内核页表中设置内核栈的映射
+  char *pa = kalloc();
+  if (pa == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  uint64 va = KSTACK((int) (p - proc));
+  uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -141,6 +162,16 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+
+  // 释放进程的内核页表，内核页表的大小就是一个页面
+  // 按照内核页表的每个PTE索引到对应的物理页，释放对应的物理页
+  // 将内核页表的页表项删除，将内核页表的物理页释放
+  if (p->kernelpgtb) 
+    proc_freepagetable(p->kernelpgtb, PGSIZE);
+
+  p->kernelpgtb = 0;
+  p->kstack = 0;
+
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -473,16 +504,22 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        w_satp(MAKE_SATP(p->kernelpgtb));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
 
+        kvminithart();
+
         found = 1;
       }
       release(&p->lock);
     }
+
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();

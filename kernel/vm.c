@@ -47,6 +47,30 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+pagetable_t
+proc_kpt_init()
+{
+  pagetable_t kpt = uvmcreate();
+  if (kpt == 0) return 0;
+  uvmmap(kpt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(kpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(kpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  uvmmap(kpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  uvmmap(kpt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  uvmmap(kpt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  uvmmap(kpt, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  return kpt;
+}
+
+void
+uvmmap(pagetable_t pgtb, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pgtb, va, sz, pa, perm) != 0)
+    panic("kvmmap");
+}
+
+
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
@@ -179,6 +203,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
+  // 遍历每个页
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
