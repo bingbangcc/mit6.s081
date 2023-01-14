@@ -187,7 +187,8 @@ void            uvmmap(pagetable_t pgtb, uint64 va, uint64 pa, uint64 sz, int pe
 pagetable_t     proc_kpt_init();
 void            freewalk_kernelpgtb(pagetable_t pagetable);
 
-
+pte_t *
+walk(pagetable_t pagetable, uint64 va, int alloc);
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);

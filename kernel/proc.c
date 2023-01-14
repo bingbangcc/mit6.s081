@@ -122,25 +122,25 @@ found:
     return 0;
   }
 
-  // // 每个进程都初始化一个内核页表
-  // p->kernelpgtb = proc_kpt_init();
-  // if (p->kernelpgtb == 0) {
-  //   freeproc(p);
-  //   release(&p->lock);
-  //   return 0;
-  // }
+  // 每个进程都初始化一个内核页表
+  p->kernelpgtb = proc_kpt_init();
+  if (p->kernelpgtb == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
 
-  // // 在该进程的内核页表中设置内核栈的映射
-  // char *pa = kalloc();
-  // if (pa == 0) {
-  //   freeproc(p);
-  //   release(&p->lock);
-  //   return 0;
-  // }
+  // 在该进程的内核页表中设置内核栈的映射
+  char *pa = kalloc();
+  if (pa == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
 
-  // uint64 va = KSTACK((int) (p - proc));
-  // uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-  // p->kstack = va;
+  uint64 va = KSTACK((int) (p - proc));
+  uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -166,13 +166,22 @@ freeproc(struct proc *p)
   // if (p->kstack) 
   //   uvmunmap(p->kernelpgtb, p->kstack, 1, 0);
 
-  // // 释放内核页表，不能释放叶子页，因为还有其他进程共享这些叶子页
-  // // 因此只需要释放内核页表所占据的页
-  // if (p->kernelpgtb) 
-  //   freewalk_kernelpgtb(p->kernelpgtb);
+  // if (p->kstack)
+  // {
+  //     pte_t* pte = walk(p->kernelpgtb, p->kstack, 0);
+  //     if (pte == 0)
+  //         panic("freeproc: walk");
+  //     kfree((void*)PTE2PA(*pte));
+  // }
 
-  // p->kernelpgtb = 0;
-  // p->kstack = 0;
+  // 释放内核页表，不能释放叶子页，因为还有其他进程共享这些叶子页
+  // 因此只需要释放内核页表所占据的页
+  if (p->kernelpgtb) 
+    freewalk_kernelpgtb(p->kernelpgtb);
+  p->kstack = 0;
+  
+  p->kernelpgtb = 0;
+
 
   p->pagetable = 0;
   p->sz = 0;
@@ -510,6 +519,7 @@ scheduler(void)
 
         w_satp(MAKE_SATP(p->kernelpgtb));
         sfence_vma();
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
