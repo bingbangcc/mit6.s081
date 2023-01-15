@@ -164,15 +164,15 @@ freeproc(struct proc *p)
     proc_freepagetable(p->pagetable, p->sz);
 
   // if (p->kstack) 
-  //   uvmunmap(p->kernelpgtb, p->kstack, 1, 0);
+  //   uvmunmap(p->kernelpgtb, p->kstack, 1, 1);
 
-  // if (p->kstack)
-  // {
-  //     pte_t* pte = walk(p->kernelpgtb, p->kstack, 0);
-  //     if (pte == 0)
-  //         panic("freeproc: walk");
-  //     kfree((void*)PTE2PA(*pte));
-  // }
+  if (p->kstack)
+  {
+      pte_t* pte = walk(p->kernelpgtb, p->kstack, 0);
+      if (pte == 0)
+          panic("freeproc: walk");
+      kfree((void*)PTE2PA(*pte));
+  }
 
   // 释放内核页表，不能释放叶子页，因为还有其他进程共享这些叶子页
   // 因此只需要释放内核页表所占据的页
