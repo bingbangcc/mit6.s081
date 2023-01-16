@@ -136,13 +136,11 @@ found:
   // 在该进程的内核页表中设置内核栈的映射
   char *pa = kalloc();
   if (pa == 0) {
-    freeproc(p);
-    release(&p->lock);
-    return 0;
+    panic("alloc");
   }
 
   uint64 va = KSTACK((int) 0);
-  uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W | PTE_V);
+  uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   p->kstack = va;
 
   // Set up new context to start executing at forkret,
@@ -174,7 +172,6 @@ freeproc(struct proc *p)
   // 因此只需要释放内核页表所占据的页
   if (p->kernelpgtb) 
     freewalk_kernelpgtb(p->kernelpgtb);
- 
   p->kernelpgtb = 0;
 
   p->pagetable = 0;
@@ -285,7 +282,7 @@ growproc(int n)
   if(n > 0){
 
     // 如果分配空间超过了
-    if (sz + n >= PLIC) {
+    if (sz + n > PLIC) {
       return -1;
     }
 
@@ -293,7 +290,7 @@ growproc(int n)
       return -1;
     }
 
-    if (u2kvmcopy(p->pagetable, p->kernelpgtb, 0, sz) < 0) {
+    if (u2kvmcopy(p->pagetable, p->kernelpgtb, p->sz, n) < 0) {
       return -1;
     }
 
@@ -320,6 +317,7 @@ int
 fork(void)
 {
   int i, pid;
+  // p是父进程，np是子进程
   struct proc *np;
   struct proc *p = myproc();
 
@@ -336,12 +334,12 @@ fork(void)
   }
   np->sz = p->sz;
 
-  if (u2kvmcopy(p->pagetable, p->kernelpgtb, 0, p->sz) < 0) {
+  // 将子进程的用户页表加载到内核页表中
+  if (u2kvmcopy(np->pagetable, np->kernelpgtb, 0, np->sz) < 0) {
     freeproc(np);
     release(&np->lock);
     return -1;
   }
-
 
   np->parent = p;
 

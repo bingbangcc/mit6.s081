@@ -52,9 +52,9 @@ exec(char *path, char **argv)
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
     
-    // 用户页表在内核页表中不能超过PLIC，CLINT在进程的内核页表中没有，因此不需要进行判断
-    if (sz1 >= PLIC) 
-      goto bad;
+    // // 用户页表在内核页表中不能超过PLIC，CLINT在进程的内核页表中没有，因此不需要进行判断
+    // if (sz1 >= PLIC) 
+    //   goto bad;
 
     sz = sz1;
     if(ph.vaddr % PGSIZE != 0)
@@ -125,7 +125,7 @@ exec(char *path, char **argv)
   // 也就是其页表等信息改变了，因此需要修改用户页表和内核页表
   // 旧的页表以及对应分配的数据页都要释放
   // 清除之前内核页表中已经存在的表项
-  uvmunmap(p->kernelpgtb, 0, PGROUNDUP(oldsz / PGSIZE), 0);
+  uvmunmap(p->kernelpgtb, 0, PGROUNDUP(oldsz) / PGSIZE, 0);
   // 将用户页表copy到内核页表中
   if (u2kvmcopy(p->pagetable, p->kernelpgtb, 0, p->sz) < 0)
     goto bad;
