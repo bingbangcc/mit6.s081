@@ -38,6 +38,8 @@ sys_wait(void)
   return wait(p);
 }
 
+
+// 给用户开辟内存空间
 uint64
 sys_sbrk(void)
 {

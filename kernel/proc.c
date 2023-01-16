@@ -36,12 +36,14 @@ procinit(void)
       // Map it high in memory, followed by an invalid
       // guard page.
 
+      // 为每个进程分配内核栈
       // char *pa = kalloc();
       // if(pa == 0)
       //   panic("kalloc");
       // uint64 va = KSTACK((int) (p - proc));
       // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       // p->kstack = va;
+
   }
   kvminithart();
 }
@@ -139,8 +141,8 @@ found:
     return 0;
   }
 
-  uint64 va = KSTACK((int) (p - proc));
-  uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  uint64 va = KSTACK((int) 0);
+  uvmmap(p->kernelpgtb, va, (uint64)pa, PGSIZE, PTE_R | PTE_W | PTE_V);
   p->kstack = va;
 
   // Set up new context to start executing at forkret,
@@ -164,25 +166,16 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
 
-  // if (p->kstack) 
-  //   uvmunmap(p->kernelpgtb, p->kstack, 1, 1);
-
-  if (p->kstack)
-  {
-      pte_t* pte = walk(p->kernelpgtb, p->kstack, 0);
-      if (pte == 0)
-          panic("freeproc: walk");
-      kfree((void*)PTE2PA(*pte));
-  }
+  if (p->kstack) 
+    uvmunmap(p->kernelpgtb, p->kstack, 1, 1);
+  p->kstack = 0;
 
   // 释放内核页表，不能释放叶子页，因为还有其他进程共享这些叶子页
   // 因此只需要释放内核页表所占据的页
   if (p->kernelpgtb) 
     freewalk_kernelpgtb(p->kernelpgtb);
-  p->kstack = 0;
-  
+ 
   p->kernelpgtb = 0;
-
 
   p->pagetable = 0;
   p->sz = 0;
@@ -265,6 +258,9 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  u2kvmcopy(p->pagetable, p->kernelpgtb, 0, p->sz);
+
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -287,11 +283,32 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+
+    // 如果分配空间超过了
+    if (sz + n >= PLIC) {
+      return -1;
+    }
+
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+
+    if (u2kvmcopy(p->pagetable, p->kernelpgtb, 0, sz) < 0) {
+      return -1;
+    }
+
+
   } else if(n < 0){
+    uint64 oldsz = sz;
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uint64 newsz = sz;
+
+    // 将进程的内核页表中对应的页表项删除
+    if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
+      int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+      uvmunmap(p->kernelpgtb, PGROUNDUP(newsz), npages, 0);
+    }
+    
   }
   p->sz = sz;
   return 0;
@@ -318,6 +335,13 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  if (u2kvmcopy(p->pagetable, p->kernelpgtb, 0, p->sz) < 0) {
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+
 
   np->parent = p;
 
@@ -525,9 +549,9 @@ scheduler(void)
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
-        c->proc = 0;
-
+        
         kvminithart();
+        c->proc = 0;
 
         found = 1;
       }

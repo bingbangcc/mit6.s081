@@ -56,7 +56,7 @@ proc_kpt_init()
   if (kpt == 0) return 0;
   uvmmap(kpt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
   uvmmap(kpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-  uvmmap(kpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  // uvmmap(kpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
   uvmmap(kpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
   uvmmap(kpt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
   uvmmap(kpt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
@@ -95,7 +95,9 @@ kvminithart()
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
 
-// 根据页表得到逻辑地址到物理地址的映射
+// 根据页表得到逻辑页号到物理页号的映射
+// 但这里只是完成找到最后一级的页表项
+// 得到的是页表项的地址，通过解引用得到页表项还要去掉标记位才是物理页号
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
@@ -119,6 +121,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
+// 这里得到的是将页表项去掉标记位得到的最终的物理页号，完成整个逻辑页号到物理页号的映射
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
@@ -333,7 +336,7 @@ freewalk_kernelpgtb(pagetable_t pagetable)
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
-      freewalk((pagetable_t)child);
+      freewalk_kernelpgtb((pagetable_t)child);
       pagetable[i] = 0;
     }
   }
@@ -358,7 +361,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t newpgtb, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
@@ -375,7 +378,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    if(mappages(newpgtb, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
     }
@@ -383,7 +386,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(newpgtb, 0, i / PGSIZE, 1);
   return -1;
 }
 
@@ -448,6 +451,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     srcva = va0 + PGSIZE;
   }
   return 0;
+  // return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -491,6 +495,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+  // return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 void
@@ -520,4 +525,34 @@ vmprint(pagetable_t pagetable)
 {
   printf("page table %p\n", pagetable);
   ptbprint(pagetable, 0);
+}
+
+
+int
+u2kvmcopy(pagetable_t src, pagetable_t dst, uint64 start, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+
+  for(i = PGROUNDUP(start); i < sz; i += PGSIZE){
+    if((pte = walk(src, i, 0)) == 0)
+      panic("u2kvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("u2kvmcopy: page not present");
+    // 这里是最后一级页表项，也就是物理页号，但是因为没有页内偏移量
+    // 因此这里得到的不是物理地址。仅完成从逻辑页号到物理页号的映射
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    flags &= ~PTE_U;
+
+    if(mappages(dst, i, PGSIZE, pa, flags) != 0){
+      goto err;
+    }
+  }
+  return 0;
+
+ err:
+  uvmunmap(dst, 0, i / PGSIZE, 1);
+  return -1;
 }
