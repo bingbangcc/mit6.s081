@@ -121,6 +121,9 @@ panic(char *s)
   printf("panic: ");
   printf(s);
   printf("\n");
+
+  backtrace();
+
   panicked = 1; // freeze uart output from other CPUs
   for(;;)
     ;
@@ -131,4 +134,20 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+void backtrace()
+{
+  printf("backtrace\n");
+  uint64 fp = r_fp();
+  uint64 high = PGROUNDUP(fp);
+  uint64 low = PGROUNDDOWN(fp);
+
+  // 这里low是需要取等号的，因为low是当前页的0号地址，因此fp可以取得low
+  // 而high不能取等号，因为high是下一页的0号地址，因此是边界，fp不能取到
+  while (fp >= low && fp < high) {
+    uint64 ra = *((uint64*)(fp-8));
+    printf("%p\n", ra);
+    fp = *((uint64*) (fp - 16));
+  }
 }
