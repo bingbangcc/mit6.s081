@@ -76,6 +76,23 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+  if (which_dev == 2) {
+    if (!p->inhandler && p->ticks != 0 && ++p->passedticks == p->ticks) {
+        // 这里+1就行，因为p->trapframe是有类型的指针
+        p->trapframecopy = p->trapframe+1;
+        // printf("%p and %p\n", p->trapframe, p->trapframecopy);
+        // 拷贝原来的trapframe
+        memmove(p->trapframecopy, p->trapframe, sizeof(struct trapframe));
+
+        // 这里不是直接调用目标函数，而是将目标函数的地址放在pc里
+        // 这样就完成了执行目标函数的任务
+        p->trapframe->epc = (uint64)p->handler;
+        p->passedticks = 0;
+        p->inhandler = 1;
+    }
+  }
+
+
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();

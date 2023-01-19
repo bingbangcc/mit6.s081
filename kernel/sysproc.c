@@ -97,3 +97,41 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+uint64 
+sys_sigalarm(void)
+{
+  int ticks;
+  uint64 handler;
+  struct proc *p = myproc();
+  
+  if (argint(0, &ticks) < 0 || argaddr(1, &handler) < 0) 
+    return -1;
+
+  p->ticks = ticks;
+  p->handler = (void (*)())handler;
+
+
+  // 保存相关寄存器的状态
+
+  return 0;
+}
+
+
+// sys_sigreturn是每次调用完handler之后调用的函数
+// 因此其只需要对passedticks和trapframecopy进行重置
+// 因为经过ticks之后还会再调用handler
+uint64 
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  // 恢复相关寄存器的状态
+  if (p->trapframecopy != p->trapframe+1) 
+    return -1;
+  memmove(p->trapframe, p->trapframecopy, sizeof(struct trapframe));
+  p->passedticks = 0;
+  p->trapframecopy = 0;
+  p->inhandler = 0;
+  return 0;
+}
