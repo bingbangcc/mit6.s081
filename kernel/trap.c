@@ -68,11 +68,20 @@ usertrap(void)
   } else if(r_scause() == 13 || r_scause() == 15){
     char* mem;
     uint64 va = r_stval();
-    if (mem = kalloc() == 0) {
+    if ((mem = (char*)kalloc()) == 0) {
       p->killed = 1;
     } else {
-      uint64 pa = walk(p->pagetable, va, 0);
-      memmove(mem, (char*))
+      pte_t *pte;
+      pte = walk(p->pagetable, va, 0);
+      
+      uint64 pa = PTE2PA(*pte);
+      uint flags = PTE_FLAGS(*pte) | PTE_W;
+
+      memmove(mem, (char*)pa, PGSIZE);
+      if (mappages(p->pagetable, va, PGSIZE, (uint64)pa, flags) != 0) {
+        kfree(mem);
+        p->killed = 1;
+      }
     }
 
   } else if((which_dev = devintr()) != 0){
