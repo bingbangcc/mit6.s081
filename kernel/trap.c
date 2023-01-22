@@ -65,6 +65,16 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 13 || r_scause() == 15){
+    char* mem;
+    uint64 va = r_stval();
+    if (mem = kalloc() == 0) {
+      p->killed = 1;
+    } else {
+      uint64 pa = walk(p->pagetable, va, 0);
+      memmove(mem, (char*))
+    }
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
