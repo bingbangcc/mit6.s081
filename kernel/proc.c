@@ -294,6 +294,7 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+  
 
   release(&np->lock);
 
@@ -693,4 +694,37 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+struct {
+  struct spinlock lock;
+  uint8 cnt;
+} cows[(PHYSTOP-KERNBASE)/PGSIZE];
+
+void initcnt(uint64 pa)
+{
+  if (pa < KERNBASE || pa > PHYSTOP) return;
+  pa = (pa-KERNBASE)/PGSIZE;
+  acquire(&cows[pa].lock);
+  cows[pa].cnt = 0;
+  release(&cows[pa].lock);
+}
+
+void increcnt(uint64 pa)
+{
+  if (pa < KERNBASE || pa > PHYSTOP) return;
+  pa = (pa-KERNBASE)/PGSIZE;
+  acquire(&cows[pa].lock);
+  cows[pa].cnt++;
+  release(&cows[pa].lock);
+}
+
+uint8 decrecnt(uint64 pa) 
+{
+  if (pa < KERNBASE || pa > PHYSTOP) return 0;
+  pa = (pa-KERNBASE)/PGSIZE;
+  acquire(&cows[pa].lock);
+  uint8 ret = cows[pa].cnt--;
+  release(&cows[pa].lock);
+  return ret;
 }

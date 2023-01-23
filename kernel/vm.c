@@ -156,13 +156,18 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("remap");
+    
+    // if(*pte & PTE_V)
+    //   panic("remap");
+
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
     a += PGSIZE;
     pa += PGSIZE;
+    
+    // if ((*pte & PTE_COW) != 0)
+    //   increcnt(pa);
   }
   return 0;
 }
@@ -190,6 +195,10 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+
+    if ((*pte & PTE_COW) != 0)
+      decrecnt(PTE2PA(*pte));
+
     *pte = 0;
   }
 }
@@ -319,6 +328,8 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    *pte &= (~PTE_W);
+    *pte |= PTE_COW;
     flags = PTE_FLAGS(*pte);
     // if((mem = kalloc()) == 0)
     //   goto err;
@@ -327,10 +338,12 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     //   kfree(mem);
     //   goto err;
     // }
-    flags &= (~PTE_W);
     if (mappages(new, i, PGSIZE, pa, flags) != 0) {
       goto err;
     }
+
+    // 这里就是copy，因此在这里增加cnt就行
+    increcnt(pa);
   }
   return 0;
 
@@ -361,6 +374,22 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   uint64 n, va0, pa0;
 
   while(len > 0){
+    
+    // 如果页表的PTE_W无效，则需要新分配数据页
+    pte_t* pte = walk(pagetable, dstva, 0);
+    char* mem;
+    if ((PTE_FLAGS(*pte) & PTE_W) == 0) {
+      if ((mem = (char*)kalloc()) == 0) {
+        return -1;
+      }
+      uint64 pa = PTE2PA(*pte);
+      uint flags = PTE_FLAGS(*pte) | PTE_W;
+      memmove(mem, (char*)pa, PGSIZE);
+      if (mappages(pagetable, dstva, PGSIZE, (uint64)mem, flags) != 0) {
+        return -1;
+      }
+    }
+
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
@@ -368,6 +397,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+
+    // 从内核空间拷贝数据到用户空间
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;

@@ -66,24 +66,26 @@ usertrap(void)
 
     syscall();
   } else if(r_scause() == 13 || r_scause() == 15){
-    char* mem;
     uint64 va = r_stval();
-    if ((mem = (char*)kalloc()) == 0) {
-      p->killed = 1;
-    } else {
-      pte_t *pte;
-      pte = walk(p->pagetable, va, 0);
-      
-      uint64 pa = PTE2PA(*pte);
-      uint flags = PTE_FLAGS(*pte) | PTE_W;
+    pte_t *pte;
+    pte = walk(p->pagetable, va, 0);
+    uint flags = PTE_FLAGS(*pte);
 
-      memmove(mem, (char*)pa, PGSIZE);
-      if (mappages(p->pagetable, va, PGSIZE, (uint64)pa, flags) != 0) {
-        kfree(mem);
+    if ((flags & PTE_COW) != 0) {
+      char* mem;
+      if ((mem = (char*)kalloc()) == 0) {
         p->killed = 1;
+      } else {
+        uint64 pa = PTE2PA(*pte);
+        flags |= PTE_W;
+        flags |= PTE_COW;
+        memmove(mem, (char*)pa, PGSIZE);
+        if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags) != 0) {
+          kfree(mem);
+          p->killed = 1;
+        }
       }
     }
-
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
