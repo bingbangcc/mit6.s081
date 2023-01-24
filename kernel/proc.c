@@ -697,14 +697,14 @@ procdump(void)
 }
 
 struct {
-  struct spinlock lock;
   uint8 cnt;
-} cows[(PHYSTOP-KERNBASE)/PGSIZE];
+  struct spinlock lock;
+} cows[(PHYSTOP-KERNBASE) >> 12];
 
 void initcnt(uint64 pa)
 {
   if (pa < KERNBASE || pa > PHYSTOP) return;
-  pa = (pa-KERNBASE)/PGSIZE;
+  pa = (pa-KERNBASE) >> 12;
   acquire(&cows[pa].lock);
   cows[pa].cnt = 0;
   release(&cows[pa].lock);
@@ -713,18 +713,66 @@ void initcnt(uint64 pa)
 void increcnt(uint64 pa)
 {
   if (pa < KERNBASE || pa > PHYSTOP) return;
-  pa = (pa-KERNBASE)/PGSIZE;
+  pa = (pa-KERNBASE) >> 12;
   acquire(&cows[pa].lock);
-  cows[pa].cnt++;
+  ++cows[pa].cnt;
   release(&cows[pa].lock);
 }
 
 uint8 decrecnt(uint64 pa) 
 {
+  uint8 ret;
   if (pa < KERNBASE || pa > PHYSTOP) return 0;
-  pa = (pa-KERNBASE)/PGSIZE;
+  pa = (pa-KERNBASE) >> 12;
   acquire(&cows[pa].lock);
-  uint8 ret = cows[pa].cnt--;
+  ret = --cows[pa].cnt;
   release(&cows[pa].lock);
   return ret;
+}
+
+uint64 walkcowaddr(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+  uint64 pa;
+  char* mem;
+  uint flags;
+
+  if (va >= MAXVA)
+    return 0;
+
+  pte = walk(pagetable, va, 0);
+  if (pte == 0)
+      return 0;
+  if ((*pte & PTE_V) == 0)
+      return 0;
+  if ((*pte & PTE_U) == 0)
+    return 0;
+  pa = PTE2PA(*pte);
+  flags = PTE_FLAGS(*pte);
+  // 判断写标志位是否没有
+  if ((*pte & PTE_W) == 0) {
+    // pte without COW flag cannot allocate page 
+    if ((*pte & PTE_COW) == 0) {
+        return 0;
+    }
+    // 分配新物理页
+    if ((mem = kalloc()) == 0) {
+      return 0;
+    }
+    // 拷贝数据物理页的内容
+    memmove(mem, (void*)pa, PGSIZE);
+    // 更新标志位
+    // flags = (PTE_FLAGS(*pte) & (~PTE_COW)) | PTE_W;
+    flags &= (~PTE_COW);
+    flags |= PTE_W;
+    // 取消原映射
+    uvmunmap(pagetable, PGROUNDDOWN(va), 1, 1);
+    // 更新新映射
+    // 这里的va必须是PGROUNDDOWN的
+    if (mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0) {
+      kfree(mem);
+      return 0;
+    }
+    return (uint64)mem;    // COW情况下返回新物理地址
+  }
+  return pa;
 }

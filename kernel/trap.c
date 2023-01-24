@@ -65,27 +65,15 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause() == 13 || r_scause() == 15){
-    uint64 va = r_stval();
-    pte_t *pte;
-    pte = walk(p->pagetable, va, 0);
-    uint flags = PTE_FLAGS(*pte);
+  }
+  // 这里只需要考虑 r_scause() == 15，因为只有写的时候才涉及cow
+  // r_scause() == 13是读，不涉及cow
+  else if(r_scause() == 15){
 
-    if ((flags & PTE_COW) != 0) {
-      char* mem;
-      if ((mem = (char*)kalloc()) == 0) {
-        p->killed = 1;
-      } else {
-        uint64 pa = PTE2PA(*pte);
-        flags |= PTE_W;
-        flags |= PTE_COW;
-        memmove(mem, (char*)pa, PGSIZE);
-        if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags) != 0) {
-          kfree(mem);
-          p->killed = 1;
-        }
-      }
+    if (walkcowaddr(p->pagetable, r_stval()) == 0) {
+      p->killed = 1;
     }
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -93,6 +81,12 @@ usertrap(void)
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
+
+// bad:
+//   printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+//   printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+//   p->killed = 1;
+
 
   if(p->killed)
     exit(-1);

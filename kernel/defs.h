@@ -109,7 +109,7 @@ void            procdump(void);
 void increcnt(uint64 pa);
 uint8 decrecnt(uint64 pa);
 void initcnt(uint64 pa);
-
+uint64 walkcowaddr(pagetable_t pagetable, uint64 va);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
