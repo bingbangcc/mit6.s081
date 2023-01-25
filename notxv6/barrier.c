@@ -20,6 +20,8 @@ barrier_init(void)
   assert(pthread_mutex_init(&bstate.barrier_mutex, NULL) == 0);
   assert(pthread_cond_init(&bstate.barrier_cond, NULL) == 0);
   bstate.nthread = 0;
+
+  bstate.round = 0;
 }
 
 static void 
@@ -31,6 +33,23 @@ barrier()
   // then increment bstate.round.
   //
   
+  // 先获取互斥锁
+  pthread_mutex_lock(&bstate.barrier_mutex);
+
+  if (++bstate.nthread == nthread) {
+    // 当所有线程都完成了这一轮次，唤醒所有线程，设置barrier的参数
+    pthread_cond_broadcast(&bstate.barrier_cond);
+    bstate.nthread = 0;
+    bstate.round++;
+    // pthread_mutex_unlock(&bstate.barrier_mutex);
+  }
+  else {
+    // 这里会释放mutex，因此不用特别释放
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+  }
+
+  // 不论什么情况都需要进行锁的释放，wait的话也没释放锁
+  pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *
@@ -40,11 +59,13 @@ thread(void *xa)
   long delay;
   int i;
 
-  for (i = 0; i < 20000; i++) {
+  // 20000
+  for (i = 0; i < 20; i++) {
     int t = bstate.round;
     assert (i == t);
     barrier();
-    usleep(random() % 100);
+    // usleep(random() % 100);
+    usleep(random() % 10);
   }
 
   return 0;
@@ -63,6 +84,7 @@ main(int argc, char *argv[])
     exit(-1);
   }
   nthread = atoi(argv[1]);
+  // 分配了用户定义的线程个数
   tha = malloc(sizeof(pthread_t) * nthread);
   srandom(0);
 

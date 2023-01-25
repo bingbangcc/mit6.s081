@@ -17,6 +17,9 @@ struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
 
+pthread_mutex_t p_locks[NBUCKET];
+
+
 double
 now()
 {
@@ -46,6 +49,9 @@ void put(int key, int value)
     if (e->key == key)
       break;
   }
+
+  // 上锁
+  pthread_mutex_lock(&p_locks[i]);
   if(e){
     // update the existing key.
     e->value = value;
@@ -53,6 +59,8 @@ void put(int key, int value)
     // the new is new.
     insert(key, value, &table[i], table[i]);
   }
+  // 解锁
+  pthread_mutex_unlock(&p_locks[i]);
 }
 
 static struct entry*
@@ -72,11 +80,18 @@ get(int key)
 static void *
 put_thread(void *xa)
 {
+  // 线程的序号
   int n = (int) (long) xa; // thread number
+  // 每个线程所分配的数据个数
   int b = NKEYS/nthread;
 
   for (int i = 0; i < b; i++) {
+    // 上锁
+    
+    // key为随机数，value为线程序号
     put(keys[b*n + i], n);
+    // 解锁
+
   }
 
   return NULL;
@@ -99,6 +114,9 @@ get_thread(void *xa)
 int
 main(int argc, char *argv[])
 {
+  for (int i = 0; i < NBUCKET; ++i)
+    pthread_mutex_init(&p_locks[i], NULL);
+
   pthread_t *tha;
   void *value;
   double t1, t0;
@@ -111,6 +129,8 @@ main(int argc, char *argv[])
   tha = malloc(sizeof(pthread_t) * nthread);
   srandom(0);
   assert(NKEYS % nthread == 0);
+
+  // 初始化keys[i]为key值
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
   }
