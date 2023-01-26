@@ -44,7 +44,8 @@ barrier()
     // pthread_mutex_unlock(&bstate.barrier_mutex);
   }
   else {
-    // 这里会释放mutex，因此不用特别释放
+    // 这里包括三个操作:原子的释放拥有的锁并阻塞当前线程, 这两个操作是原子的; 第三个操作是由条件变量唤醒后会再次获取锁.
+    // 因此从这里出去的时候锁是lock状态的，因此最后也要unlock
     pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
   }
 
